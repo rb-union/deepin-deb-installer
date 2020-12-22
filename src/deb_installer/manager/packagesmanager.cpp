@@ -208,16 +208,21 @@ const ConflictResult PackagesManager::isConflictSatisfy(const QString &arch, con
         for (const auto &conflict : conflict_list) {
             const QString name = conflict.packageName();
 
-            // 修复provides和conflict 中存在同一个虚包导致依赖判断错误的问题
-            Package *p = packageWithArch(name, arch, conflict.multiArchAnnotation());
+            //修复依赖中 conflict与provides 存在相同 virtual package
+            //此前使用packageWithArch, 在package打包失败时，会寻找virtual package的提供的其他包
+            //在dde-daemon中 lastore-daemon-migration与dde-daemon为conflict,
+            //lastore-daemon-migration 又提供了dde-daemon,导致最后打成的包不是virtual package而是provides的包
+            Package *p = m_backendFuture.result()->package(name);
 
             if (!p || !p->isInstalled()) {
-                qInfo() << "PackageManager:" << "package error or package not installed" << p;
+                qDebug() << "PackageManager:" << "isConflictSatisfy"
+                         << "failed to build conflict package or confilict package not installed";
                 continue;
             }
             // arch error, conflicts
             if (!isArchMatches(arch, p->architecture(), p->multiArchType())) {
-                qDebug() << "PackagesManager:" << "conflicts package installed: " << arch << p->name() << p->architecture()
+                qDebug() << "PackagesManager:" << "conflicts package installed: "
+                         << arch << p->name() << p->architecture()
                          << p->multiArchTypeString();
                 return ConflictResult::err(name);
             }
@@ -268,7 +273,6 @@ const ConflictResult PackagesManager::isConflictSatisfy(const QString &arch, con
             }
         }
     }
-
     return ConflictResult::ok(QString());
 }
 
