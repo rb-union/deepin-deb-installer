@@ -108,8 +108,9 @@ private:
 
     const ConflictResult isInstalledConflict(const QString &packageName, const QString &packageVersion,
                                              const QString &packageArch);
+    // 判断包是否存在冲突
     const ConflictResult isConflictSatisfy(const QString &arch, QApt::Package *package);
-    const ConflictResult isConflictSatisfy(const QString &arch, const QList<QApt::DependencyItem> &conflicts);
+    const ConflictResult isConflictSatisfy(const QString &arch, const QList<QApt::DependencyItem> &conflicts, const QList<QApt::DependencyItem> &replaces);
 
     void resetInstallStatus();
 

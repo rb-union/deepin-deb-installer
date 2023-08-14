@@ -134,10 +134,13 @@ const ConflictResult PackagesManager::packageConflictStat(const int index)
 {
     DebFile p(m_preparedPackages[index]);
 
-    ConflictResult ConflictResult = isConflictSatisfy(p.architecture(), p.conflicts());
+    ConflictResult ConflictResult = isConflictSatisfy(p.architecture(), p.conflicts(), p.replaces());
     return ConflictResult;
 }
 
+/**
+ * @return 返回 \a arch 架构的软件包 \a package 在当前环境是否存在冲突
+ */
 const ConflictResult PackagesManager::isConflictSatisfy(const QString &arch, Package *package)
 {
     const QString &name = package->name();
@@ -148,7 +151,7 @@ const ConflictResult PackagesManager::isConflictSatisfy(const QString &arch, Pac
 
     qDebug() << "PackagesManager:" << "check conflict for local installed package is ok.";
 
-    const auto ret_package = isConflictSatisfy(arch, package->conflicts());
+    const auto ret_package = isConflictSatisfy(arch, package->conflicts(), package->replaces());
 
     qDebug() << "PackagesManager:" << "check finished, conflict is satisfy:" << package->name() << bool(ret_package.is_ok());
 
@@ -196,14 +199,17 @@ const ConflictResult PackagesManager::isInstalledConflict(const QString &package
     return ConflictResult::ok(QString());
 }
 
-const ConflictResult PackagesManager::isConflictSatisfy(const QString &arch, const QList<DependencyItem> &conflicts)
+/**
+   @return 返回 \a arch 架构的软件包在当前环境是否存在冲突，通过冲突列表 \a conflicts 和替换列表 \a replaces 判断
+ */
+const ConflictResult PackagesManager::isConflictSatisfy(const QString &arch, const QList<DependencyItem> &conflicts, const QList<QApt::DependencyItem> &replaces)
 {
     for (const auto &conflict_list : conflicts) {
         for (const auto &conflict : conflict_list) {
             const QString name = conflict.packageName();
 
             // 修复provides和conflict 中存在同一个虚包导致依赖判断错误的问题
-            Package *p = m_backendFuture.result()->package(name);
+            Package *p = packageWithArch(name, arch, conflict.multiArchAnnotation());
 
             if (!p || !p->isInstalled()) {
                 qInfo() << "PackageManager:" << "package error or package not installed" << p;
@@ -231,9 +237,33 @@ const ConflictResult PackagesManager::isConflictSatisfy(const QString &arch, con
 
             // mirror version is also break
             const auto mirror_result = Package::compareVersion(mirror_version, conflict_version);
-            if (dependencyVersionMatch(mirror_result, type)) {
-                qDebug() << "PackagesManager:" <<  "conflicts package installed: " << arch << p->name() << p->architecture()
-                         << p->multiArchTypeString() << mirror_version << conflict_version;
+            if (dependencyVersionMatch(mirror_result, type)) { //此处即可确认冲突成立
+                //额外判断是否会替换此包
+                bool conflict_yes = true;
+                for (auto replace_list : replaces) {
+                    for (auto replace : replace_list) {
+                        if (replace.packageName() == name) { //包名符合
+                            auto replaceType = replace.relationType(); //提取版本号规则
+                            auto versionCompare = Package::compareVersion(installed_version, replace.packageVersion()); //比较版本号
+                            if (dependencyVersionMatch(versionCompare, replaceType)) { //如果版本号符合要求，即判定replace成立
+                                conflict_yes = false;
+                                break;
+                            }
+                        }
+                    }
+                    if (!conflict_yes) {
+                        break;
+                    }
+                }
+
+                if (!conflict_yes) {
+                    p = nullptr;
+                    continue;
+                }
+
+                qWarning() << "PackagesManager:" <<  "conflicts package installed: "
+                           << arch << p->name() << p->architecture()
+                           << p->multiArchTypeString() << mirror_version << conflict_version;
                 return ConflictResult::err(name);
             }
         }
@@ -326,7 +356,7 @@ PackageDependsStatus PackagesManager::getPackageDependsStatus(const int index)
     }
 
     // conflicts
-    const ConflictResult debConflitsResult = isConflictSatisfy(architecture, deb->conflicts());
+    const ConflictResult debConflitsResult = isConflictSatisfy(architecture, deb->conflicts(), deb->replaces());
 
     if (!debConflitsResult.is_ok()) {
         qDebug() << "PackagesManager:" << "depends break because conflict" << deb->packageName();
@@ -473,7 +503,7 @@ void PackagesManager::packageCandidateChoose(QSet<QString> &choosed_set, const Q
             }
         }
 
-        if (!isConflictSatisfy(debArch, package->conflicts()).is_ok()) {
+        if (!isConflictSatisfy(debArch, package->conflicts(), package->replaces()).is_ok()) {
             package = nullptr;
             continue;
         }
