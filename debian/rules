@@ -9,6 +9,18 @@ export QT_SELECT := 5
 #export DEB_LDFLAGS_MAINT_APPEND = -Wl,--as-needed
 include /usr/share/dpkg/default.mk
 
+# Check if the system name contains `uos`, and environment supports deepin-elf-verify, use 'control.uos'.
+# Add deepin-elf-verify / deepin-elf-sign-tool to Depends of deepin-deb-installer.
+CONTROL_FILE = debian/control
+# If SystemName contain 'UOS' and deepin-elf-verify exists;
+UOS_SYSTEM := $(shell grep -ioP 'SystemName=\KUOS.*' /etc/os-version)
+ifneq ($(UOS_SYSTEM),)
+	ELF_EXISTS := $(shell apt-cache show deepin-elf-verify deepin-elf-sign-tool 2>/dev/null | grep -E '^Package:')
+	ifneq ($(ELF_EXISTS),)
+		CONTROL_FILE = debian/control.uos
+	endif
+endif
+
 override_dh_auto_configure:
 	dh_auto_configure -- \
     -DCMAKE_BUILD_TYPE=Release \
@@ -19,3 +31,8 @@ override_dh_auto_configure:
 
 override_dh_shlibdeps:
 	dh_shlibdeps --dpkg-shlibdeps-params=--ignore-missing-info
+
+override_dh_gencontrol:
+	@echo "--- current system is '$(UOS_SYSTEM)', control file is '$(CONTROL_FILE)'"
+	dh_gencontrol -- -c$(CONTROL_FILE)
+
