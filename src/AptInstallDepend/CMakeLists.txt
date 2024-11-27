@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2022 UnionTech Software Technology Co., Ltd.
+# SPDX-FileCopyrightText: 2022 - 2024 UnionTech Software Technology Co., Ltd.
 #
 # SPDX-License-Identifier: CC0-1.0
 
@@ -29,21 +29,23 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}  -fstack-protector-all")
 string(REGEX REPLACE "(.*)/(.*)" "\\1" PROJECT_INIT_PATH  ${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_INIT_PATH}/deb-installer/process)
 
-file(GLOB_RECURSE AUTH_CPP_FILES ${CMAKE_CURRENT_LIST_DIR}/*.h ${CMAKE_CURRENT_LIST_DIR}/*.cpp ${PROJECT_INIT_PATH}/deb-installer/process/*.cpp)
+file(GLOB_RECURSE AUTH_CPP_FILES
+    ${CMAKE_CURRENT_LIST_DIR}/*.h
+    ${CMAKE_CURRENT_LIST_DIR}/*.cpp
+    ${PROJECT_INIT_PATH}/deb-installer/process/*.cpp)
 add_executable (${EXE_NAME}
     ${AUTH_CPP_FILES}
 )
 
 # Find the library
-find_package(PkgConfig REQUIRED)
-find_package(Qt5Widgets REQUIRED)
-find_package(Qt5Gui REQUIRED)
-find_package(Qt5Core REQUIRED)
+find_package(Qt5 REQUIRED Core Gui Widgets DBus)
 set(CMAKE_INSTALL_PREFIX /usr)
 # Install files
 install(TARGETS ${EXE_NAME} DESTINATION bin)
 target_link_libraries(${EXE_NAME} ${LINK_LIBS} )
 target_link_libraries(${EXE_NAME}
     Qt5::Core
+    Qt5::Gui
     Qt5::Widgets
-    Qt5::Gui)
+    Qt5::DBus
+)

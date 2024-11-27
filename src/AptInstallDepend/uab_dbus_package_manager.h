@@ -9,9 +9,12 @@
 #include <QScopedPointer>
 #include <QDBusInterface>
 
-#include "uab_package.h"
-
 namespace Uab {
+
+enum UabCode {
+    UabError = -1,
+    UabSuccess = 0,
+};
 
 // DBus interface: org.deepin.linglong.PackageManager
 class UabDBusPackageManager : public QObject
@@ -21,9 +24,10 @@ public:
     static UabDBusPackageManager *instance();
 
     [[nodiscard]] bool isValid();
+    [[nodiscard]] bool isRunning() const;
 
-    [[nodiscard]] bool installFormFile(const UabPackage::Ptr &installPtr);
-    [[nodiscard]] bool uninstall(const UabPackage::Ptr &uninstallPtr);
+    [[nodiscard]] bool installFormFile(const QString &filePath);
+    [[nodiscard]] bool uninstall(const QString &id, const QString &version, const QString &channel, const QString &module);
 
     Q_SIGNAL void progressChanged(int progress, const QString &message);
     Q_SIGNAL void packageFinished(bool success);
@@ -46,14 +50,13 @@ private:
     ~UabDBusPackageManager() override = default;
 
     void ensureInterface();
-    [[nodiscard]] bool isRunning() const;
 
-    Q_SLOT void onTaskChanged(const QString &recTaskID, const QString &percentage, const QString &message, int status);
+    Q_SLOT void onTaskPropertiesChanged(QString interface, QVariantMap changed_properties, QStringList invalidated_properties);
 
     // linglnog dbus interface result
     struct DBusResult
     {
-        QString taskId;
+        QString taskPath;
         int code{0};
         QString message;
     };

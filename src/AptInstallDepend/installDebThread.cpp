@@ -5,11 +5,13 @@
 #include <QDebug>
 
 #include "installDebThread.h"
+#include "uab_dbus_package_manager.h"
 
 static const QString kParamInstallWine = "install_wine";
 static const QString kParamInstallConfig = "install_config";
 static const QString kParamInstallComaptible = "install_compatible";
 static const QString kParamInstallImmutable = "install_immutable";
+static const QString kParamInstallUab = "uab";
 
 static const QString kInstall = "install";
 static const QString kRemove = "remove";
@@ -52,11 +54,12 @@ void InstallDebThread::setParam(const QStringList &arguments)
         return;
     }
 
-    // normal command;
+    // normal command
     static QMap<QString, Command> kParamMap{{kParamInstallWine, InstallWine},
                                             {kParamInstallConfig, InstallConfig},
                                             {kParamInstallComaptible, Compatible},
                                             {kParamInstallImmutable, Immutable},
+                                            {kParamInstallUab, LinglongUab},
                                             {kInstall, Install},
                                             {kRemove, Remove}};
 
@@ -149,6 +152,8 @@ void InstallDebThread::run()
     } else if (m_cmds.testFlag(InstallConfig)) {
         // InstallConfig must last, Compatible and Immutable maybe set InstallConfig too.
         installConfig();
+    } else if (m_cmds.testFlag(LinglongUab)) {
+        uabProcessWithDBus();
     }
 }
 
@@ -319,6 +324,68 @@ void InstallDebThread::immutableProcess()
     QDir filePath(TEMPLATE_DIR);
     if (filePath.exists()) {
         filePath.removeRecursively();
+    }
+}
+
+/**
+   @brief Linglong's DBus interface requires root permission. move to this process to make DBUs calls,
+        output progress information via stdout.
+ */
+void InstallDebThread::uabProcessWithDBus()
+{
+    if (m_listParam.isEmpty()) {
+        return;
+    }
+
+    bool ret = false;
+
+    connect(
+        Uab::UabDBusPackageManager::instance(),
+        &Uab::UabDBusPackageManager::progressChanged,
+        this,
+        [this](int progress, const QString &message) {
+            // convert to json data
+            qInfo() << QString("{\"percentage\":%1, \"message\":\"%2\"}").arg(progress).arg(message);
+        },
+        Qt::UniqueConnection);
+
+    if (m_cmds.testFlag(Install)) {
+        // only one package support
+        QString debPath = m_listParam.first();
+        ret = Uab::UabDBusPackageManager::instance()->installFormFile(debPath);
+
+    } else if (m_cmds.testFlag(Remove)) {
+        // param e.g.: [id/version/channel/module] org.deepin.test/1.0.0/main/binary
+        QString mergedInfo = m_listParam.first();
+        QStringList params = mergedInfo.split('/');
+        static const int kValidParamSize = 4;
+        if (kValidParamSize != params.size()) {
+            qWarning() << "Invalid params:" << mergedInfo;
+            return;
+        }
+
+        // uninstall run fast and sync.
+        ret = Uab::UabDBusPackageManager::instance()->uninstall(params.at(0), params.at(1), params.at(2), params.at(3));
+    }
+
+    if (!ret) {
+        return;
+    }
+
+    // install need wait finished
+    if (Uab::UabDBusPackageManager::instance()->isRunning()) {
+        QEventLoop loop;
+        connect(Uab::UabDBusPackageManager::instance(),
+                &Uab::UabDBusPackageManager::packageFinished,
+                &loop,
+                [&loop, this](bool success) {
+                    if (success) {
+                        m_resultFlag = 0;
+                    }
+                    loop.quit();
+                });
+
+        loop.exec();
     }
 }
 

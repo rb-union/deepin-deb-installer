@@ -28,15 +28,22 @@ const QString kJsonState = "state";
 const QString kJsonCode = "code";
 const QString kJsonMessage = "messsage";
 
+//
+static const QString kPkexecBin = "pkexec";
+static const QString kInstallProcessorBin = "deepin-deb-installer-dependsInstall";
+static const QString kParamUab = "--uab";
+static const QString kParamInstall = "--install";
+static const QString kParamRemove = "--remove";
+
 const int kInitedIndex = -1;
 
 UabProcessController::UabProcessController(QObject *parent)
     : QObject{parent}
 {
     if (UabDBusPackageManager::instance()->isValid()) {
-        setProcessType(DBus);
+        setProcessType(BackendDBus);
     } else {
-        setProcessType(Cli);
+        setProcessType(DirectCli);
     }
 }
 
@@ -47,7 +54,7 @@ void UabProcessController::setProcessType(ProcessType type)
     }
     m_type = type;
 
-    if (DBus == type) {
+    if (BackendDBus == type) {
         QObject::connect(UabDBusPackageManager::instance(),
                          &UabDBusPackageManager::progressChanged,
                          this,
@@ -189,9 +196,14 @@ void UabProcessController::parseProgressFromJson(const QByteArray &jsonData)
         }
 
     } else if (doc.isObject()) {
-        // maybe code info
+        // maybe percentage / code info
         const QJsonObject obj = doc.object();
-        if (UabError == obj.value(kJsonCode).toInt()) {
+
+        if (obj.contains(kJsonPercentage)) {
+            float progress = obj.value(kJsonPercentage).toDouble();
+            updateWholeProgress(progress);
+
+        } else if (UabError == obj.value(kJsonCode).toInt()) {
             const QString errorString = obj.value(kJsonMessage).toString();
             auto currUabPtr = currentPackagePtr();
             if (currUabPtr) {
@@ -288,9 +300,9 @@ bool UabProcessController::nextProcess()
     const auto &currentProc = m_procList.at(m_currentIndex);
     switch (currentProc.first) {
         case Installing:
-            return (DBus == m_type) ? installDBusImpl(currentProc.second) : installCliImpl(currentProc.second);
+            return (BackendDBus == m_type) ? installBackendDBusImpl(currentProc.second) : installCliImpl(currentProc.second);
         case Uninstalling:
-            return (DBus == m_type) ? uninstallDBusImpl(currentProc.second) : uninstallCliImpl(currentProc.second);
+            return (BackendDBus == m_type) ? uninstallBackendDBusImpl(currentProc.second) : uninstallCliImpl(currentProc.second);
         default:
             break;
     }
@@ -299,24 +311,59 @@ bool UabProcessController::nextProcess()
     return false;
 }
 
-bool UabProcessController::installDBusImpl(const UabPackage::Ptr &installPtr)
+/**
+   @brief The linglong DBus caller need root permission. We transport command
+        to `deepin-deb-installer-dependsInstall`, then call DBus interface.
+   @sa uninstallBackendDBusImpl()
+ */
+bool UabProcessController::installBackendDBusImpl(const UabPackage::Ptr &installPtr)
 {
     if (!installPtr || !installPtr->isValid() || installPtr->info()->filePath.isEmpty()) {
         return false;
     }
 
     m_procFlag.setFlag(Installing);
-    return UabDBusPackageManager::instance()->installFormFile(installPtr);
+
+    // e.g.: pkexec deepin-deb-installer-dependsInstall --uab --install [file to package].uab
+    m_process->setProgram(kPkexecBin);
+    m_process->setArguments({kInstallProcessorBin, kParamUab, kParamInstall, installPtr->info()->filePath});
+    m_process->start();
+
+    const QString recordCommand = QString("command: %1 %2 %3/%4[uab package]")
+                                      .arg(kInstallProcessorBin)
+                                      .arg(kParamUab)
+                                      .arg(kParamInstall)
+                                      .arg(installPtr->info()->id)
+                                      .arg(installPtr->info()->version);
+    qInfo() << recordCommand;
+
+    return true;
 }
 
-bool UabProcessController::uninstallDBusImpl(const UabPackage::Ptr &uninstallPtr)
+bool UabProcessController::uninstallBackendDBusImpl(const UabPackage::Ptr &uninstallPtr)
 {
     if (!uninstallPtr || !uninstallPtr->isValid()) {
         return false;
     }
 
     m_procFlag.setFlag(Uninstalling);
-    return UabDBusPackageManager::instance()->uninstall(uninstallPtr);
+
+    // e.g.: pkexec deepin-deb-installer-dependsInstall --uab --remove [id/version/channel/module]
+    const QString mergeInfo = QString("%1/%2/%3/%4")
+                                  .arg(uninstallPtr->info()->id)
+                                  .arg(uninstallPtr->info()->version)
+                                  .arg(uninstallPtr->info->channel)
+                                  .arg(uninstallPtr->info()->module);
+    m_process->setProgram(kPkexecBin);
+    m_process->setArguments({kInstallProcessorBin, kParamUab, kParamRemove, mergeInfo});
+    m_process->start();
+
+    const QString recordCommand =
+        QString("command: %1 %2 %3 %4").arg(kInstallProcessorBin).arg(kParamUab).arg(kParamRemove).arg(mergeInfo);
+    Q_EMIT processOutput(recordCommand);
+    qInfo() << recordCommand;
+
+    return true;
 }
 
 bool Uab::UabProcessController::installCliImpl(const Uab::UabPackage::Ptr &installPtr)
@@ -339,6 +386,7 @@ bool Uab::UabProcessController::installCliImpl(const Uab::UabPackage::Ptr &insta
                                       .arg(installPtr->info()->id)
                                       .arg(installPtr->info()->version);
     Q_EMIT processOutput(recordCommand);
+    qInfo() << recordCommand;
 
     return true;
 }
@@ -364,6 +412,7 @@ bool Uab::UabProcessController::uninstallCliImpl(const Uab::UabPackage::Ptr &uni
                                       .arg(uninstallPtr->info()->id)
                                       .arg(uninstallPtr->info()->version);
     Q_EMIT processOutput(recordCommand);
+    qInfo() << recordCommand;
 
     return true;
 }

@@ -23,8 +23,8 @@ public:
 
     enum ProcessType {
         Unknown,
-        DBus,  // call Linglong package manager DBus interface
-        Cli,   // means qprocess execute, command line interface
+        BackendDBus,  // transport to deepin-deb-installer-dependsInstall, call Linglong package manager DBus interface
+        DirectCli,    // means qprocess execute, direct command line interface
     };
     void setProcessType(ProcessType type);
     [[nodiscard]] ProcessType processType() const;
@@ -63,8 +63,8 @@ private:
 
     bool nextProcess();
 
-    bool installDBusImpl(const UabPackage::Ptr &installPtr);
-    bool uninstallDBusImpl(const UabPackage::Ptr &uninstallPtr);
+    bool installBackendDBusImpl(const UabPackage::Ptr &installPtr);
+    bool uninstallBackendDBusImpl(const UabPackage::Ptr &uninstallPtr);
     bool installCliImpl(const UabPackage::Ptr &installPtr);
     bool uninstallCliImpl(const UabPackage::Ptr &uninstallPtr);
 
@@ -81,7 +81,7 @@ private:
     int m_currentIndex{-1};
     QList<QPair<ProcFlag, UabPackage::Ptr>> m_procList;  // install/uninstall package list
 
-    Q_DISABLE_COPY(UabProcessController);
+    Q_DISABLE_COPY(UabProcessController)
 };
 
 }  // namespace Uab
